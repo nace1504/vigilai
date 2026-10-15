@@ -1,17 +1,27 @@
 <!--
   VigilAI — decoder cho error log ModSecurity v3 (Nginx connector) gửi qua syslog, tag "modsec".
   Đặt tại: /var/ossec/etc/decoders/modsec_decoders.xml
+  Lưu ý: logging driver syslog của Docker KHÔNG gửi trường hostname, nên predecoder của Wazuh
+  hiểu sai (hostname = "modsec[pid]:", program_name rỗng). Vì vậy KHÔNG dùng <program_name>,
+  mà bắt theo nội dung "ModSecurity: Warning|Access denied".
   Trường tách ra: srcip, modsec_action, modsec_id, modsec_msg, url
-  Kiểm tra bằng /var/ossec/bin/wazuh-logtest với full_log thật (Bước 6.3).
+  Hai dạng dòng:
+    - Warning:       ... ModSecurity: Warning. ... [id ".."] ... [msg ".."] ..., client: IP, ... request: "GET /url HTTP/1.1"
+    - Access denied: ... [client IP] ModSecurity: Access denied with code 403 ... [id ".."] [msg ".."] ... request: "GET /url ..."
 -->
 
 <decoder name="modsec">
-  <program_name>^modsec</program_name>
+  <prematch type="pcre2">ModSecurity: (?:Warning|Access denied)</prematch>
 </decoder>
 
-<decoder name="modsec-fields">
+<decoder name="modsec-denied">
   <parent>modsec</parent>
-  <prematch>ModSecurity: </prematch>
-  <regex type="pcre2">\[client ([\d.]+)\] ModSecurity: (Warning|Access denied[^.]*)\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?\[uri "([^"]*)"\]</regex>
+  <regex type="pcre2">\[client ([\d.]+)\] ModSecurity: (Access denied)[^.]*\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?request: "[A-Z]+ (\S+)</regex>
   <order>srcip, modsec_action, modsec_id, modsec_msg, url</order>
+</decoder>
+
+<decoder name="modsec-warning">
+  <parent>modsec</parent>
+  <regex type="pcre2">ModSecurity: (Warning)\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?client: ([\d.]+),.*?request: "[A-Z]+ (\S+)</regex>
+  <order>modsec_action, modsec_id, modsec_msg, srcip, url</order>
 </decoder>
