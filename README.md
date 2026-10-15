@@ -10,15 +10,16 @@ Suricata, Zeek, Wazuh và trí tuệ nhân tạo — đồ án tốt nghiệp, P
 Tấn công web → WAF (ModSecurity + OWASP CRS v4) phát hiện → log WAF + access log DVWA
 đẩy syslog UDP 514 → Wazuh Server (decoder/rule) → Indexer → Dashboard.
 
-| VM | IP | Vai trò |
-| --- | --- | --- |
-| Kali | 192.168.100.10 | Attacker |
-| Web | 192.168.100.20 | Docker: WAF (`modsec`) + DVWA (`dvwa`) |
-| Wazuh Server | 192.168.100.30 | remoted, analysisd (decoder + rule), API, Filebeat |
-| Wazuh Indexer | 192.168.100.31 | OpenSearch, lưu `wazuh-alerts-*` |
-| Wazuh Dashboard | 192.168.100.32 | Giao diện HTTPS 443 |
+| VM | IP | RAM | Vai trò |
+| --- | --- | --- | --- |
+| Kali | 192.168.100.10 | 2 GB | Attacker (chỉ bật khi tấn công) |
+| Web | 192.168.100.20 | 3 GB | Docker: WAF (`modsec`) + DVWA (`dvwa`) |
+| Wazuh Server | 192.168.100.30 | 2 GB | remoted, analysisd (decoder + rule), API, Filebeat |
+| Wazuh Indexer | 192.168.100.31 | 3 GB | OpenSearch (heap 1.5 GB, tắt swap), lưu `wazuh-alerts-*` |
+| Wazuh Dashboard | 192.168.100.32 | 2 GB | Giao diện HTTPS 443 |
 
-Mạng: VMware VMnet8 (NAT) `192.168.100.0/24`, gateway `.2`, máy thật `.1`. Wazuh 4.14.
+Mạng: VMware VMnet8 (NAT) `192.168.100.0/24`, DHCP tắt, gateway + DNS `.2`, máy thật `.1`, card `ens32`.
+Máy thật 16 GB RAM. Ubuntu Server 24.04, Wazuh 4.14. User VM: `nguyen`.
 
 ## Cấu trúc repo
 
