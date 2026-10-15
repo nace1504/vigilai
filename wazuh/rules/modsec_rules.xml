@@ -71,7 +71,7 @@
   <rule id="100210" level="10">
     <if_sid>100200</if_sid>
     <field name="modsec_id">^949110$</field>
-    <description>WAF: vượt ngưỡng điểm bất thường từ $(srcip) - $(modsec_action)</description>
+    <description>WAF: vượt ngưỡng điểm bất thường từ $(srcip) (CRS anomaly score)</description>
     <mitre><id>T1190</id></mitre>
     <group>blocked,</group>
   </rule>
