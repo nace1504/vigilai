@@ -1,0 +1,9 @@
+# /etc/netplan/50-cloud-init.yaml trên VM wazuh-indexer — đổi ens33 theo tên card (ip a)
+# Áp dụng: sudo chmod 600 /etc/netplan/50-cloud-init.yaml && sudo netplan apply
+network:
+  version: 2
+  ethernets:
+    ens33:
+      addresses: [192.168.100.31/24]
+      routes: [{to: default, via: 192.168.100.2}]
+      nameservers: {addresses: [8.8.8.8, 1.1.1.1]}

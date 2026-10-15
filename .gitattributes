@@ -1,0 +1,5 @@
+# Mọi file text dùng LF vì chạy trên Linux (tránh lỗi \r khi chạy .sh trên VM)
+* text=auto eol=lf
+*.docx binary
+*.png binary
+*.pdf binary

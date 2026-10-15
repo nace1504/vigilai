@@ -1,0 +1,80 @@
+<!--
+  VigilAI — rule phân loại cảnh báo WAF theo dải ID của OWASP CRS v4.
+  Đặt tại: /var/ossec/etc/rules/modsec_rules.xml
+  942 = SQLi, 941 = XSS, 932 = RCE, 930 = LFI, 933 = PHP injection, 913 = scanner,
+  949110 = vượt ngưỡng điểm bất thường (bị chặn khi engine On).
+  Log DVWA (tag dvwa) dùng decoder web-accesslog + rule 311xx có sẵn của Wazuh.
+-->
+
+<group name="modsec,web,attack,">
+
+  <rule id="100200" level="3">
+    <decoded_as>modsec</decoded_as>
+    <field name="modsec_id">\d+</field>
+    <description>WAF: ModSecurity rule $(modsec_id) - $(modsec_msg)</description>
+  </rule>
+
+  <rule id="100201" level="8">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^942</field>
+    <description>WAF: SQL Injection từ $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>sqli,</group>
+  </rule>
+
+  <rule id="100202" level="8">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^941</field>
+    <description>WAF: XSS từ $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>xss,</group>
+  </rule>
+
+  <rule id="100203" level="10">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^932</field>
+    <description>WAF: Remote Command Execution từ $(srcip)</description>
+    <mitre><id>T1190</id><id>T1059</id></mitre>
+    <group>rce,</group>
+  </rule>
+
+  <rule id="100204" level="8">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^930</field>
+    <description>WAF: LFI / Path Traversal từ $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>lfi,</group>
+  </rule>
+
+  <rule id="100205" level="8">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^933</field>
+    <description>WAF: PHP Injection từ $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+  </rule>
+
+  <rule id="100206" level="6">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^913</field>
+    <description>WAF: Scanner/công cụ tấn công từ $(srcip)</description>
+    <mitre><id>T1595</id></mitre>
+    <group>scanner,</group>
+  </rule>
+
+  <rule id="100210" level="10">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^949110$</field>
+    <description>WAF: vượt ngưỡng điểm bất thường từ $(srcip) - $(modsec_action)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>blocked,</group>
+  </rule>
+
+  <rule id="100220" level="13" frequency="10" timeframe="60" ignore="120">
+    <if_matched_group>modsec</if_matched_group>
+    <same_srcip />
+    <description>WAF: tấn công dồn dập từ $(srcip) (≥10 cảnh báo/60s)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>correlation,</group>
+  </rule>
+
+</group>

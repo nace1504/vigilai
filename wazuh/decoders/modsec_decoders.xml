@@ -1,0 +1,17 @@
+<!--
+  VigilAI — decoder cho error log ModSecurity v3 (Nginx connector) gửi qua syslog, tag "modsec".
+  Đặt tại: /var/ossec/etc/decoders/modsec_decoders.xml
+  Trường tách ra: srcip, modsec_action, modsec_id, modsec_msg, url
+  Kiểm tra bằng /var/ossec/bin/wazuh-logtest với full_log thật (Bước 6.3).
+-->
+
+<decoder name="modsec">
+  <program_name>^modsec</program_name>
+</decoder>
+
+<decoder name="modsec-fields">
+  <parent>modsec</parent>
+  <prematch>ModSecurity: </prematch>
+  <regex type="pcre2">\[client ([\d.]+)\] ModSecurity: (Warning|Access denied[^.]*)\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?\[uri "([^"]*)"\]</regex>
+  <order>srcip, modsec_action, modsec_id, modsec_msg, url</order>
+</decoder>

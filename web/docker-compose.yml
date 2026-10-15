@@ -1,0 +1,44 @@
+# VM Web (192.168.100.20) — WAF ModSecurity/CRS v4 + DVWA
+# Bản cuối (đã gồm logging syslog của Bước 5). Khi dựng lần đầu theo kế hoạch,
+# có thể bỏ 2 khối `logging` đến Bước 5 mới thêm.
+
+services:
+  dvwa:
+    build: ./dvwa
+    container_name: dvwa
+    restart: unless-stopped
+    networks: [webnet]          # không publish port: chỉ đi qua WAF
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://192.168.100.30:514"
+        syslog-format: "rfc3164"
+        tag: "dvwa"
+
+  waf:
+    image: owasp/modsecurity-crs:nginx   # ghim tag cụ thể khi đã chạy ổn
+    container_name: waf
+    restart: unless-stopped
+    depends_on: [dvwa]
+    ports:
+      - "80:8080"
+    environment:
+      BACKEND: "http://dvwa:80"
+      PORT: "8080"
+      LOGLEVEL: "info"                # BẮT BUỘC: dòng Warning của từng luật CRS ghi ở mức info
+      MODSEC_RULE_ENGINE: "On"        # DetectionOnly khi demo 'không có WAF'
+      BLOCKING_PARANOIA: "1"          # CRS v4 dùng tên này thay PARANOIA
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+      MODSEC_AUDIT_ENGINE: "RelevantOnly"
+      MODSEC_AUDIT_LOG_FORMAT: "JSON"
+    networks: [webnet]
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://192.168.100.30:514"
+        syslog-format: "rfc3164"
+        tag: "modsec"
+
+networks:
+  webnet:

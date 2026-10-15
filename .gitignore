@@ -1,0 +1,21 @@
+# Bí mật — KHÔNG BAO GIỜ commit
+wazuh-install-files.tar
+wazuh-install-files/
+*passwords*
+*.pem
+*.key
+.env
+
+# File máy ảo / file lớn
+*.vmdk
+*.vmx
+*.ova
+*.ovf
+*.iso
+
+# Rác hệ điều hành / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+*.swp

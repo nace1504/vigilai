@@ -1,0 +1,20 @@
+<!--
+  Wazuh Server (192.168.100.30) — các khối THÊM vào /var/ossec/etc/ossec.conf
+  Giữ nguyên mọi khối có sẵn (kể cả <remote> secure 1514). Xem Bước 5.1.
+-->
+
+<!-- Nhận syslog từ VM Web (WAF tag modsec + DVWA tag dvwa) -->
+<remote>
+  <connection>syslog</connection>
+  <port>514</port>
+  <protocol>udp</protocol>
+  <allowed-ips>192.168.100.20/32</allowed-ips>
+  <local_ip>192.168.100.30</local_ip>
+</remote>
+
+<!--
+  CHỈ DÙNG KHI DEBUG: đặt trong khối <global> có sẵn để lưu toàn bộ log thô vào
+  /var/ossec/logs/archives/archives.json. Nghiệm thu xong đặt lại "no".
+
+  <logall_json>yes</logall_json>
+-->

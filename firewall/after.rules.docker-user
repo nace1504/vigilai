@@ -1,0 +1,9 @@
+# Thêm vào CUỐI /etc/ufw/after.rules trên VM Web (.20), đổi ens33 theo tên card.
+# Chỉ cho Kali (.10) vào cổng 80 của WAF. Sau đó: sudo ufw reload
+# BEGIN lab DOCKER-USER
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -i ens33 -p tcp -m conntrack --ctorigdstport 80 --ctdir ORIGINAL ! -s 192.168.100.10 -j DROP
+-A DOCKER-USER -j RETURN
+COMMIT
+# END lab DOCKER-USER

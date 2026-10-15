@@ -1,0 +1,6 @@
+# Thêm vào /etc/hosts trên mọi VM (Bước 0)
+192.168.100.10  kali
+192.168.100.20  web
+192.168.100.30  wazuh-server
+192.168.100.31  wazuh-indexer
+192.168.100.32  wazuh-dashboard

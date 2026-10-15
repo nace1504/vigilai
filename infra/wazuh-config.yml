@@ -1,0 +1,13 @@
+# config.yml cho Wazuh installation assistant 4.14 (Bước 1.1)
+# Dùng: curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
+#       bash wazuh-install.sh --generate-config-files   (file tar sinh ra KHÔNG commit)
+nodes:
+  indexer:
+    - name: node-1
+      ip: "192.168.100.31"
+  server:
+    - name: wazuh-1
+      ip: "192.168.100.30"
+  dashboard:
+    - name: dashboard
+      ip: "192.168.100.32"
