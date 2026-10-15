@@ -69,10 +69,10 @@
     <group>blocked,</group>
   </rule>
 
-  <rule id="100220" level="13" frequency="10" timeframe="60" ignore="120">
-    <if_matched_group>modsec</if_matched_group>
+  <rule id="100220" level="13" frequency="5" timeframe="60" ignore="120">
+    <if_matched_sid>100210</if_matched_sid>
     <same_srcip />
-    <description>WAF: tấn công dồn dập từ $(srcip) (≥10 cảnh báo/60s)</description>
+    <description>WAF: tấn công dồn dập từ $(srcip) (≥5 request bị chặn/60s)</description>
     <mitre><id>T1190</id></mitre>
     <group>correlation,</group>
   </rule>
