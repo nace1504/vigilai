@@ -22,6 +22,6 @@
 
 <decoder name="modsec-warning">
   <parent>modsec</parent>
-  <regex type="pcre2">ModSecurity: (Warning)\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?client: ([\d.]+),.*?request: "[A-Z]+ (\S+)</regex>
-  <order>modsec_action, modsec_id, modsec_msg, srcip, url</order>
+  <regex type="pcre2">\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?client: ([\d.]+),.*?request: "[A-Z]+ (\S+)</regex>
+  <order>modsec_id, modsec_msg, srcip, url</order>
 </decoder>
