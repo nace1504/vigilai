@@ -9,9 +9,9 @@ Dựng theo thứ tự **hạ tầng → Wazuh (Indexer → Server → Dashboard
 Nguyên tắc chung:
 
 - Mỗi bước có **điểm kiểm tra (✔)**; chưa qua thì không sang bước sau.
-- **Snapshot VM** sau mỗi bước chạy được.
+- **Snapshot VM** chỉ khi còn dư đĩa. Thực tế ổ D (160 GB) đầy khi chạy 5 VM + snapshot → đã xoá hết snapshot; repo Git là nơi khôi phục (compose, rule, decoder, cấu hình). Thứ tự bật: Indexer → Server → Dashboard → Web → Kali; tắt ngược lại.
 - Mọi file cấu hình (compose, dvwa/Dockerfile, ossec.conf, decoder, rule, attack.sh, after.rules) commit lên repo Git cá nhân (private) tên vigilai — vừa làm backup, vừa có lịch sử thay đổi để viết báo cáo.
-- Phiên bản: **Wazuh 4.14** (bản `current` trên docs), **CRS v4** image `owasp/modsecurity-crs:nginx` — ghim tag cụ thể khi đã chạy ổn.
+- Phiên bản: **Wazuh 4.14.9** (bản đã cài), **CRS v4** image `owasp/modsecurity-crs:nginx` — ghim tag cụ thể khi đã chạy ổn.
 
 Làm một mình nên đi tuần tự, mỗi tuần chốt một mốc chạy được:
 
@@ -38,10 +38,10 @@ Mục tiêu: 5 VM cùng mạng 192.168.100.0/24, IP tĩnh, ra được Internet 
 network:
   version: 2
   ethernets:
-    ens33:
+    ens32:
       addresses: [192.168.100.30/24]
       routes: [{to: default, via: 192.168.100.2}]
-      nameservers: {addresses: [8.8.8.8, 1.1.1.1]}
+      nameservers: {addresses: [192.168.100.2, 8.8.8.8]}
 ```
 
 Rồi `sudo netplan apply`; kiểm tra tên card bằng `ip a`. Nếu sau reboot IP bị cloud-init ghi đè: tạo /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg với nội dung network: {config: disabled}. Sau đó:
@@ -50,7 +50,7 @@ Rồi `sudo netplan apply`; kiểm tra tên card bằng `ip a`. Nếu sau reboot
 - **Giờ và gói:** `sudo timedatectl set-timezone Asia/Ho_Chi_Minh`, `sudo apt update && sudo apt -y upgrade && sudo apt -y install curl tar tcpdump net-tools chrony`. Giờ lệch giữa các VM làm hỏng cert TLS và làm sai rule tương quan theo thời gian.
 - **Riêng Indexer:** tắt swap (`sudo swapoff -a` và comment dòng swap trong `/etc/fstab`) — OpenSearch khuyến nghị.
 
-✔ Kiểm tra: từ mỗi VM `ping` được 4 VM còn lại theo tên và `ping 8.8.8.8` được; `timedatectl` báo `System clock synchronized: yes`. → Snapshot "B0-base".
+✔ Kiểm tra: từ mỗi VM `ping` được 4 VM còn lại theo tên và `ping 8.8.8.8` được; `timedatectl` báo `System clock synchronized: yes`. (Tên card mạng thực tế là `ens32`, kiểm tra bằng `ip a`.)
 
 ## Bước 1 — Wazuh Indexer (VM .31)
 
@@ -91,11 +91,11 @@ scp wazuh-install-files.tar wazuh-install.sh <user>@192.168.100.32:~/
 **1.3. Cài Indexer và khởi tạo cluster:**
 
 ```bash
-bash wazuh-install.sh --wazuh-indexer node-1
+bash wazuh-install.sh -i --wazuh-indexer node-1
 bash wazuh-install.sh --start-cluster
 ```
 
-**1.4. Chỉnh heap JVM** (VM 4 GB → 2 GB): sửa `/etc/wazuh-indexer/jvm.options` thành `-Xms2g` và `-Xmx2g`, rồi `systemctl restart wazuh-indexer`.
+**1.4. Chỉnh heap JVM** (VM RAM thấp → thực tế dùng 1536m): sửa `/etc/wazuh-indexer/jvm.options` thành `-Xms1536m` và `-Xmx1536m`, rồi `systemctl restart wazuh-indexer`.
 
 **1.5. Kiểm tra:**
 
@@ -105,7 +105,7 @@ curl -k -u admin:$ADMIN_PW https://192.168.100.31:9200
 curl -k -u admin:$ADMIN_PW "https://192.168.100.31:9200/_cat/nodes?v"
 ```
 
-✔ Lệnh đầu trả JSON có `"cluster_name" : "wazuh-cluster"`; lệnh sau liệt kê `node-1`. → Snapshot.
+✔ Lệnh đầu trả JSON có `"cluster_name" : "wazuh-indexer-cluster"`; lệnh sau liệt kê `node-1`.
 
 ## Bước 2 — Wazuh Server (VM .30)
 
@@ -125,7 +125,7 @@ filebeat test output          # phải ra "talk to server... OK"
 /var/ossec/bin/wazuh-control status
 ```
 
-✔ `filebeat test output` báo OK tới 192.168.100.31:9200; các tiến trình `wazuh-analysisd`, `wazuh-remoted`, `wazuh-apid` đều `is running`. → Snapshot.
+✔ `filebeat test output` báo OK tới 192.168.100.31:9200; các tiến trình `wazuh-analysisd`, `wazuh-remoted`, `wazuh-apid` đều `is running`.
 
 ## Bước 3 — Wazuh Dashboard (VM .32) và chốt cụm Wazuh
 
@@ -143,7 +143,7 @@ Sau khi cả 3 node chạy ổn, **khóa phiên bản** trên cả 3 VM để `a
 sed -i "s/^deb /#deb /" /etc/apt/sources.list.d/wazuh.list && apt update
 ```
 
-✔ Đăng nhập Dashboard được; trang **Server management → Status** báo manager active; vào **Threat Hunting** thấy đã có vài alert của chính manager (rule 502, 503…) — chứng tỏ luồng Server → Indexer → Dashboard đã thông. → Snapshot cả 3 VM "B3-wazuh-ok".
+✔ Đăng nhập Dashboard được; trang **Server management → Status** báo manager active; vào **Threat Hunting** thấy đã có vài alert của chính manager (rule 502, 503…) — chứng tỏ luồng Server → Indexer → Dashboard đã thông. . Lưu ý: Indexer chỉ nghe trên 192.168.100.31, nên dùng `curl -k -u admin:<mật khẩu> https://192.168.100.31:9200` (không phải `localhost`). Cài với `-i` để bỏ qua kiểm tra phần cứng.
 
 ## Bước 4 — VM Web: Docker, WAF + DVWA (VM .20)
 
@@ -219,7 +219,7 @@ Trên VM Web: `docker logs waf 2>&1 | grep ModSecurity | tail -5`. Copy vài dò
 
 Kiểm tra log DVWA: `docker logs dvwa 2>&1 | tail -3` phải có dòng access log bắt đầu bằng `192.168.100.10` (request `login.php` vừa gửi từ Kali). Ra `172.x` là remoteip chưa ăn; không có dòng access log nào là image không in log ra stdout — báo lại để đổi cách lấy.
 
-✔ Request sạch 200, request SQLi 403; log WAF có `[id "942..."]` và `[id "949110"]`; log DVWA ghi IP thật .10. → Snapshot.
+✔ Request sạch 200, request SQLi 403; log WAF có `[id "942..."]` và `[id "949110"]`; log DVWA ghi IP thật .10.
 
 ## Bước 5 — Đẩy log WAF và DVWA sang Wazuh qua syslog
 
@@ -246,7 +246,6 @@ Tạm bật lưu toàn bộ log thô để debug: trong khối `<global>` đặt
       driver: syslog
       options:
         syslog-address: "udp://192.168.100.30:514"
-        syslog-format: "rfc3164"
         tag: "dvwa"
 
   waf:
@@ -255,7 +254,6 @@ Tạm bật lưu toàn bộ log thô để debug: trong khối `<global>` đặt
       driver: syslog
       options:
         syslog-address: "udp://192.168.100.30:514"
-        syslog-format: "rfc3164"
         tag: "modsec"
 ```
 
@@ -263,7 +261,7 @@ Tạm bật lưu toàn bộ log thô để debug: trong khối `<global>` đặt
 docker compose up -d --force-recreate
 ```
 
-`tag` trở thành `program_name` bên Wazuh — cách để phân biệt 2 nguồn. Nguồn `modsec` gồm error log (dòng `ModSecurity:`), access log nginx và audit log JSON; nguồn `dvwa` gồm access log Apache. Docker 20.10+ vẫn giữ bản sao cục bộ nên `docker logs` vẫn dùng được.
+`tag` chỉ để đánh dấu container. **Lưu ý thực tế:** driver syslog của Docker không gửi hostname, nên Wazuh predecoder gán hostname = `modsec[pid]:` và `program_name` để trống → decoder KHÔNG thể khớp theo `<program_name>`; phải khớp theo nội dung dòng log (xem Bước 6). Không dùng `syslog-format`. Nguồn `modsec` gồm error log (dòng `ModSecurity:`), access log nginx và audit log JSON; nguồn `dvwa` gồm access log Apache. Docker 20.10+ vẫn giữ bản sao cục bộ nên `docker logs` vẫn dùng được.
 
 **5.3. Kiểm tra luồng:** bắn lại request SQLi từ Kali, trên Wazuh Server chạy song song:
 
@@ -272,24 +270,37 @@ tcpdump -i any -nn -A udp port 514 | grep -iE 'modsec|dvwa'
 tail -f /var/ossec/logs/archives/archives.json | grep -E 'modsec|dvwa'
 ```
 
-✔ tcpdump thấy gói từ 192.168.100.20; archives.json có bản ghi với `"program_name":"modsec"` (full_log chứa `ModSecurity:`) và `"program_name":"dvwa"` (full_log là dòng access log). Ghi lại 1–2 `full_log` mỗi loại để test decoder. → Snapshot.
+✔ tcpdump thấy gói từ 192.168.100.20; archives.json có bản ghi mà full_log chứa `ModSecurity:` (nguồn WAF) và bản ghi full_log là dòng access log (nguồn DVWA). Dùng `grep -a` (file có byte lạ). Ghi lại 1–2 `full_log` mỗi loại để test decoder.
 
 ## Bước 6 — Decoder và rule cho log WAF và DVWA
 
-Phần tự viết của đồ án là 2 file cho log WAF (6.1–6.3); log DVWA dùng decoder và rule có sẵn của Wazuh (6.4). Wazuh phân biệt 2 nguồn qua `program_name` = tag `modsec` / `dvwa` gắn ở Bước 5.
+Phần tự viết của đồ án là 2 file cho log WAF (6.1–6.3); log DVWA dùng decoder và rule có sẵn của Wazuh (6.4). Vì Docker syslog không có hostname/program_name (Bước 5), decoder nhận diện log WAF **theo nội dung** (`ModSecurity: Access denied` / `ModSecurity: Warning`).
 
-**6.1. Decoder** — `/var/ossec/etc/decoders/modsec_decoders.xml`:
+**6.1. Decoder** — `/var/ossec/etc/decoders/modsec_decoders.xml` (owner `wazuh:wazuh`, mode 660). Có 2 loại dòng: *Access denied* (error log nginx, có `[client IP]`) và *Warning* (có `client: IP,` ở cuối). Phải là **2 decoder top-level cùng tên `modsec`**, mỗi cái có prematch lookahead `(?=...)` — kiểu cha/con không có prematch riêng chỉ thử child đầu tiên nên dòng Warning không tách được trường.
 
 ```xml
+<!--
+  VigilAI — decoder cho error log ModSecurity v3 (Nginx connector) gửi qua syslog, tag "modsec".
+  Đặt tại: /var/ossec/etc/decoders/modsec_decoders.xml
+  Docker syslog driver KHÔNG gửi hostname -> predecoder Wazuh hiểu sai (program_name rỗng),
+  nên bắt theo NỘI DUNG dòng log, không dùng <program_name>.
+  Hai decoder độc lập cùng tên "modsec" (mỗi cái có prematch riêng; prematch dạng lookahead
+  không "ăn" ký tự nào nên regex vẫn quét từ đầu dòng):
+    - Access denied: ... [client IP] ModSecurity: Access denied ... [id ".."] [msg ".."] ... request: "GET /url ..."
+    - Warning:       ... ModSecurity: Warning. ... [id ".."] [msg ".."] ..., client: IP, ... request: "GET /url ..."
+  Trường: srcip, modsec_action (chỉ có ở Access denied), modsec_id, modsec_msg, url
+-->
+
 <decoder name="modsec">
-  <program_name>^modsec</program_name>
+  <prematch type="pcre2">(?=.*ModSecurity: Access denied)</prematch>
+  <regex type="pcre2">\[client ([\d.]+)\] ModSecurity: (Access denied)[^.]*\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?request: "[A-Z]+ (\S+)</regex>
+  <order>srcip, modsec_action, modsec_id, modsec_msg, url</order>
 </decoder>
 
-<decoder name="modsec-fields">
-  <parent>modsec</parent>
-  <prematch>ModSecurity: </prematch>
-  <regex type="pcre2">\[client ([\d.]+)\] ModSecurity: (Warning|Access denied[^.]*)\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?\[uri "([^"]*)"\]</regex>
-  <order>srcip, modsec_action, modsec_id, modsec_msg, url</order>
+<decoder name="modsec">
+  <prematch type="pcre2">(?=.*ModSecurity: Warning)</prematch>
+  <regex type="pcre2">\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?client: ([\d.]+),.*?request: "[A-Z]+ (\S+)</regex>
+  <order>modsec_id, modsec_msg, srcip, url</order>
 </decoder>
 ```
 
@@ -351,12 +362,29 @@ Phần tự viết của đồ án là 2 file cho log WAF (6.1–6.3); log DVWA 
     <group>scanner,</group>
   </rule>
 
+  <rule id="100207" level="0">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^920350$</field>
+    <description>WAF: bỏ qua 920350 (Host là địa chỉ IP) - nhiễu</description>
+  </rule>
+
   <rule id="100210" level="10">
     <if_sid>100200</if_sid>
     <field name="modsec_id">^949110$</field>
-    <description>WAF: vượt ngưỡng điểm bất thường từ $(srcip) - $(modsec_action)</description>
+    <description>WAF: vượt ngưỡng điểm bất thường từ $(srcip) (CRS anomaly score)</description>
     <mitre><id>T1190</id></mitre>
     <group>blocked,</group>
+  </rule>
+
+  <rule id="100220" level="13" frequency="5" timeframe="60" ignore="120">
+    <if_matched_sid>100210</if_matched_sid>
+    <same_srcip />
+    <description>WAF: tấn công dồn dập từ $(srcip) (≥5 request bị chặn/60s)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>correlation,</group>
+  </rule>
+
+</group>
   </rule>
 
   <rule id="100220" level="13" frequency="10" timeframe="60" ignore="120">
@@ -378,15 +406,15 @@ systemctl restart wazuh-manager
 /var/ossec/bin/wazuh-logtest             # dán nguyên 1 dòng full_log đã lưu ở Bước 5
 ```
 
-✔ wazuh-logtest in ra: Phase 2 `name: 'modsec'` có đủ 5 trường `srcip`, `modsec_action`, `modsec_id`, `modsec_msg`, `url`; Phase 3 khớp đúng rule (dòng 942xxx → 100201, dòng 949110 → 100210) và báo `Alert to be generated`. Bắn thật từ Kali → Dashboard thấy alert. → Snapshot, commit 2 file lên Git.
+✔ wazuh-logtest in ra: Phase 2 `name: 'modsec'` có đủ 5 trường `srcip`, `modsec_action`, `modsec_id`, `modsec_msg`, `url`; Phase 3 khớp đúng rule (dòng 942xxx → 100201, dòng 949110 → 100210; 920350 bị rule 100207 làm im) và báo `Alert to be generated`. Bắn thật từ Kali → Dashboard thấy alert. Commit 2 file lên Git.
 
-Mỗi request bị chặn sinh nhiều alert (mỗi rule CRS khớp 1 dòng Warning + 1 dòng 949110). Đó là bình thường; chính điều này khiến sqlmap/nikto kích hoạt rule 100220 rất nhanh.
+Mỗi request bị chặn sinh nhiều alert (mỗi rule CRS khớp 1 dòng Warning + 1 dòng 949110). Rule 100220 đếm theo 100210 (1 lần/request bị chặn): ≥5 request bị chặn trong 60 giây từ cùng IP → level 13, ignore 120 giây để không lặp. Dòng Warning chỉ có khi `LOGLEVEL: info`.
 
 **6.4. Log DVWA dùng decoder có sẵn.** Không phải viết decoder mới: Wazuh có sẵn decoder `web-accesslog` cho access log Apache và nhóm rule web 311xx (ví dụ 31103 SQLi, 31105 XSS, 31106 "web attack trả về 200"). Dán 1 dòng `full_log` của nguồn `dvwa` vào `wazuh-logtest`.
 
 Khi WAF đang `On`, log DVWA chỉ chứa request sạch (rule 31100 level 0, không sinh cảnh báo) — đúng như mong đợi vì request tấn công đã bị chặn ở WAF. Rule tấn công 311xx chỉ bật khi demo DetectionOnly (Bước 8.3).
 
-✔ Phase 2 ra decoder `web-accesslog` và `srcip` = 192.168.100.10 (không phải 172.x). Nếu decoder có sẵn không tách được dòng log, viết thêm decoder theo `program_name` `dvwa`, giống cách làm ở 6.1.
+✔ Phase 2 ra decoder `web-accesslog` và `srcip` = 192.168.100.10 (không phải 172.x). Thực tế đã kiểm: decoder có sẵn tách tốt cả access log DVWA lẫn dòng access log nginx của WAF; rule 31101 (400/404…), 31104/31105/31106, 31164 cho kết quả đúng. Không cần viết thêm decoder.
 
 ## Bước 7 — Firewall theo ma trận kết nối
 
@@ -411,13 +439,15 @@ ufw allow from 192.168.100.1 to any port 443 proto tcp
 ufw enable && ufw status numbered
 ```
 
-**Riêng VM Web (.20):** Docker tự ghi iptables cho cổng publish nên **bỏ qua ufw** — `ufw` không chặn được cổng 80. Phải lọc ở chain `DOCKER-USER`. Thêm vào cuối `/etc/ufw/after.rules` (đổi `ens33` theo tên card):
+Đã làm thủ công từng VM bằng `ufw` (script mẫu: `firewall/ufw-rules.sh`; đoạn DOCKER-USER: `firewall/after.rules.docker-user`).
+
+**Riêng VM Web (.20):** Docker tự ghi iptables cho cổng publish nên **bỏ qua ufw** — `ufw` không chặn được cổng 80. Phải lọc ở chain `DOCKER-USER`. Thêm vào cuối `/etc/ufw/after.rules` (đổi `ens32` theo tên card):
 
 ```text
 # BEGIN lab DOCKER-USER
 *filter
 :DOCKER-USER - [0:0]
--A DOCKER-USER -i ens33 -p tcp -m conntrack --ctorigdstport 80 --ctdir ORIGINAL ! -s 192.168.100.10 -j DROP
+-A DOCKER-USER -i ens32 -p tcp -m conntrack --ctorigdstport 80 --ctdir ORIGINAL ! -s 192.168.100.10 -j DROP
 -A DOCKER-USER -j RETURN
 COMMIT
 # END lab DOCKER-USER
@@ -425,7 +455,7 @@ COMMIT
 
 Rồi `ufw reload` (hoặc `systemctl restart ufw docker`).
 
-✔ Từ Kali: `curl http://192.168.100.20` được; `nc -zv 192.168.100.31 9200` và `nc -zv 192.168.100.30 55000` bị chặn. Từ máy thật: vào Dashboard được, vào `http://192.168.100.20` bị chặn. Chạy lại 1 request SQLi → vẫn ra alert trên Dashboard. → Snapshot.
+✔ Từ Kali: `curl http://192.168.100.20` được; `nc -zv 192.168.100.31 9200` và `nc -zv 192.168.100.30 55000` bị chặn. Từ máy thật: vào Dashboard được, vào `http://192.168.100.20` bị chặn. Chạy lại 1 request SQLi → vẫn ra alert trên Dashboard.
 
 ## Bước 8 — Kịch bản tấn công và dashboard demo
 
@@ -448,7 +478,7 @@ hit SCAN -A "Nikto" "$T/"
 **8.2. Tấn công dồn dập** để kích hoạt rule 100220 (level 13):
 
 ```bash
-nikto -h http://192.168.100.20
+nikto -h http://192.168.100.20 -maxtime 60s
 sqlmap -u "http://192.168.100.20/vulnerabilities/sqli/?id=1&Submit=Submit" \
   --cookie="PHPSESSID=<lấy từ trình duyệt>; security=low" --batch
 ```
@@ -457,28 +487,28 @@ sqlmap -u "http://192.168.100.20/vulnerabilities/sqli/?id=1&Submit=Submit" \
 
 **8.4. Dashboard:**
 
-- Dashboard Management → Index patterns → `wazuh-alerts-*` → **Refresh fields** để thấy `data.modsec_id`, `data.modsec_msg`, `data.url`.
-- Threat Hunting → lọc `rule.groups: modsec`; thêm cột `rule.id`, `rule.level`, `data.srcip`, `data.modsec_id`, `data.url`, `rule.description`. Lưu thành saved search "WAF alerts". Tạo thêm saved search "DVWA alerts" lọc decoder.name: web-accesslog.
+- Menu của Dashboard này (OpenSearch Dashboards): Explore → Discover (Threat Hunting cũng dùng được), Visualize (`/app/visualize`), Dashboards (`/app/dashboards`). Dashboard Management → Index patterns → `wazuh-alerts-*` → **Refresh fields** để thấy `data.modsec_id`, `data.modsec_msg`, `data.url`.
+- Threat Hunting → lọc `rule.groups: modsec`; thêm cột `rule.id`, `rule.level`, `data.srcip`, `data.modsec_id`, `data.url`, `rule.description`. Lưu thành saved search "WAF alerts" (Discover). Tạo thêm saved search "DVWA alerts" lọc decoder.name: web-accesslog.
 - Tab **MITRE ATT&CK**: thấy T1190, T1059, T1595.
 - Tạo dashboard riêng "WAF Overview" gồm 3 visualization: pie theo `rule.description`, bar theo thời gian chia theo `rule.id`, bảng top `data.srcip`.
 
-✔ Chạy `attack.sh` → 6 dòng 403; Dashboard có alert 100201–100206 và 100210; chạy nikto → có alert 100220 level 13.
+✔ Chạy `attack.sh` → 6 dòng 403; Dashboard có alert 100201–100206 và 100210; chạy nikto → có alert 100220 level 13 (đã kiểm: xuất hiện 1 lần nhờ ignore 120s). Demo DetectionOnly đã kiểm: ra cả alert WAF lẫn 31106 (code 200).
 
 ## Bước 9 — Checklist nghiệm thu
 
-- [ ] 5 VM ping được nhau, giờ đồng bộ
-- [ ] Indexer trả `wazuh-cluster`, Filebeat test output OK, Dashboard đăng nhập được
-- [ ] Request sạch qua WAF trả 200, request tấn công trả 403
-- [ ] DVWA không truy cập trực tiếp được (không publish port)
-- [ ] Log WAF và DVWA tới Wazuh qua UDP 514 (program_name modsec / dvwa), chỉ nhận từ .20
-- [ ] wazuh-logtest decode đủ 5 trường, khớp đúng rule; log DVWA ra srcip 192.168.100.10
-- [ ] Đủ 6 loại alert: SQLi, XSS, RCE, LFI, scanner, vượt ngưỡng (100210)
-- [ ] Rule 100220 level 13 bật khi chạy nikto/sqlmap
-- [ ] Tab MITRE hiển thị T1190
-- [ ] Firewall đúng ma trận (thử cả luồng được phép và bị chặn)
-- [ ] Demo DetectionOnly: cùng 1 request SQLi ra cảnh báo WAF (1002xx) lẫn DVWA (311xx)
-- [ ] Tắt `logall_json` (đặt lại `no`) để không đầy đĩa
-- [ ] Snapshot cuối "GD1-done", repo Git có đủ compose, ossec.conf (phần sửa), dvwa/Dockerfile, decoder, rule, attack.sh, after.rules
+- [x] 5 VM ping được nhau, giờ đồng bộ
+- [x] Indexer trả `wazuh-indexer-cluster`, Filebeat test output OK, Dashboard đăng nhập được
+- [x] Request sạch qua WAF trả 200, request tấn công trả 403
+- [x] DVWA không truy cập trực tiếp được (không publish port)
+- [x] Log WAF và DVWA tới Wazuh qua UDP 514 (decoder theo nội dung), chỉ nhận từ .20
+- [x] wazuh-logtest decode đủ 5 trường, khớp đúng rule; log DVWA ra srcip 192.168.100.10
+- [x] Đủ 6 loại alert: SQLi, XSS, RCE, LFI, scanner, vượt ngưỡng (100210)
+- [x] Rule 100220 level 13 bật khi chạy nikto/sqlmap
+- [x] Tab MITRE hiển thị T1190
+- [x] Firewall đúng ma trận (thử cả luồng được phép và bị chặn)
+- [x] Demo DetectionOnly: cùng 1 request SQLi ra cảnh báo WAF (1002xx) lẫn DVWA (311xx)
+- [x] Tắt `logall_json` (đặt lại `no`) để không đầy đĩa
+- [x] Repo Git (commit mới nhất) có đủ compose, ossec.conf (phần sửa), dvwa/Dockerfile, decoder, rule, attack.sh, after.rules, samples/
 - [ ] Ảnh chụp cho báo cáo: 403 trên Kali, logtest, danh sách alert, MITRE, dashboard WAF Overview, cặp cảnh báo WAF + DVWA ở màn DetectionOnly
 
 ## Xử lý sự cố thường gặp
@@ -489,13 +519,16 @@ sqlmap -u "http://192.168.100.20/vulnerabilities/sqli/?id=1&Submit=Submit" \
 | Dashboard báo "Wazuh API not reachable" | Server có chạy `wazuh-apid` không; firewall đã mở 55000 từ .32 chưa |
 | Không có gói nào tới cổng 514 | Trên Web: `docker inspect waf`` ``--format '{{.HostConfig.LogConfig}}'` (làm tương tự với `dvwa`) xem đúng driver chưa; container phải recreate sau khi sửa logging |
 | Có gói 514 nhưng archives trống | Sai `allowed-ips` / `local_ip`; xem `/var/ossec/logs/ossec.log` dòng `wazuh-remoted` |
-| archives có log nhưng không ra alert | Chạy `wazuh-logtest`: Phase 2 ra decoder khác hoặc thiếu trường → so regex với dòng log thật; `program_name` không phải `modsec` / dvwa → kiểm tra `tag` và `syslog-format` |
+| archives có log nhưng không ra alert | Chạy `wazuh-logtest`: Phase 2 ra decoder khác hoặc thiếu trường → so regex với dòng log thật; decoder đang khớp theo nội dung (không theo `program_name`, vì Docker syslog không gửi hostname) → so regex với dòng thật |
 | Alert có trong `alerts.json` nhưng không lên Dashboard | `filebeat test output`; Indexer đầy đĩa → index chuyển read-only (`df -h`) |
 | Không thấy `data.modsec_*` khi lọc | Refresh fields của index pattern `wazuh-alerts-*` |
 | Cổng 80 vẫn mở cho mọi IP dù đã bật ufw | Docker bỏ qua ufw — dùng chain `DOCKER-USER` (Bước 7) |
 | Request sạch cũng bị 403 | Xem `[id]` trong log: thường là 920xxx (protocol); giữ PL1, không tăng paranoia |
 | Log DVWA ghi IP 172.x thay vì .10 | remoteip chưa bật (docker exec dvwa apache2ctl -M \| grep remoteip) hoặc WAF không gửi header X-Real-IP, hoặc subnet Docker nằm ngoài 172.16.0.0/12 (docker network inspect) — sửa RemoteIPInternalProxy rồi build lại |
 | Không có log nguồn dvwa trên Wazuh | docker logs dvwa không có dòng access log → image không in log ra stdout, cần đổi cách lấy; có log nhưng không tới Wazuh → kiểm tra khối logging của service dvwa và recreate container |
+| `curl localhost:9200` trên Indexer trả HTTP 000 | Indexer bind vào 192.168.100.31, dùng `https://192.168.100.31:9200` |
+| Host đầy đĩa (VMware cảnh báo) | Đừng bấm Cancel; tắt VM (theo thứ tự tắt) để giải phóng `.vswp`; xoá snapshot; chuyển 1 VM sang ổ khác |
+| `grep` báo "binary file matches" trên archives.json | Dùng `grep -a` |
 | Chỉ có cảnh báo 100210, không có 100201–100206 | Thiếu LOGLEVEL: "info" trong compose → dòng ModSecurity: Warning không được ghi; thêm biến rồi recreate container waf |
 
 ## Các quyết định đã chốt
@@ -503,12 +536,13 @@ sqlmap -u "http://192.168.100.20/vulnerabilities/sqli/?id=1&Submit=Submit" \
 Khớp với file .docx kiến trúc giai đoạn 1.
 
 - **Quy mô:** 1 người thực hiện, 5 VM; Kali giữ VM tấn công riêng (.10).
-- **Wazuh:** bản 4.14, tách 3 VM Server / Indexer / Dashboard.
-- **Nguồn log:** 2 nguồn qua syslog UDP 514 — log WAF (tag `modsec`, decoder/rule tự viết) và access log DVWA (tag `dvwa`, decoder/rule có sẵn).
+- **Wazuh:** bản 4.14.9 (cài `-i`, heap Indexer 1536m, cluster `wazuh-indexer-cluster`), tách 3 VM Server / Indexer / Dashboard.
+- **Nguồn log:** 2 nguồn qua syslog UDP 514 — log WAF (tag `modsec`, decoder/rule tự viết, khớp theo nội dung vì Docker syslog không gửi hostname) và access log DVWA (tag `dvwa`, decoder/rule có sẵn).
 - **Agent:** chưa cài ở giai đoạn 1; cài trên VM Web từ giai đoạn 2 (Suricata/Zeek, Active Response), lúc đó mở thêm 1514–1515/tcp.
 - **WAF:** `LOGLEVEL=info`, `BLOCKING_PARANOIA=1`, `ANOMALY_INBOUND=5`; gửi IP client qua `X-Real-IP`, DVWA đọc bằng `mod_remoteip`.
-- **Decoder WAF:** tách `srcip`, `modsec_action`, `modsec_id`, `modsec_msg`, `url`; rule 100200–100220.
+- **Decoder WAF:** tách `srcip`, `modsec_action`, `modsec_id`, `modsec_msg`, `url`; rule 100200–100220 (100207 làm im 920350; 100220 = ≥5 request bị chặn/60s).
 - **Mạng:** 7 luồng trong ma trận kết nối (gồm SSH từ máy quản trị); cổng 80 trên VM Web lọc ở chain `DOCKER-USER`.
+- **Hạ tầng:** không dùng snapshot (đầy ổ D); `logall_json` đã tắt; thư mục `samples/` chứa log thô + alert mẫu cho agent AI giai đoạn sau.
 
 ## Nguồn
 
