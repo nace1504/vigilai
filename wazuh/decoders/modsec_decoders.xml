@@ -1,27 +1,23 @@
 <!--
   VigilAI — decoder cho error log ModSecurity v3 (Nginx connector) gửi qua syslog, tag "modsec".
   Đặt tại: /var/ossec/etc/decoders/modsec_decoders.xml
-  Lưu ý: logging driver syslog của Docker KHÔNG gửi trường hostname, nên predecoder của Wazuh
-  hiểu sai (hostname = "modsec[pid]:", program_name rỗng). Vì vậy KHÔNG dùng <program_name>,
-  mà bắt theo nội dung "ModSecurity: Warning|Access denied".
-  Trường tách ra: srcip, modsec_action, modsec_id, modsec_msg, url
-  Hai dạng dòng:
-    - Warning:       ... ModSecurity: Warning. ... [id ".."] ... [msg ".."] ..., client: IP, ... request: "GET /url HTTP/1.1"
-    - Access denied: ... [client IP] ModSecurity: Access denied with code 403 ... [id ".."] [msg ".."] ... request: "GET /url ..."
+  Docker syslog driver KHÔNG gửi hostname -> predecoder Wazuh hiểu sai (program_name rỗng),
+  nên bắt theo NỘI DUNG dòng log, không dùng <program_name>.
+  Hai decoder độc lập cùng tên "modsec" (mỗi cái có prematch riêng; prematch dạng lookahead
+  không "ăn" ký tự nào nên regex vẫn quét từ đầu dòng):
+    - Access denied: ... [client IP] ModSecurity: Access denied ... [id ".."] [msg ".."] ... request: "GET /url ..."
+    - Warning:       ... ModSecurity: Warning. ... [id ".."] [msg ".."] ..., client: IP, ... request: "GET /url ..."
+  Trường: srcip, modsec_action (chỉ có ở Access denied), modsec_id, modsec_msg, url
 -->
 
 <decoder name="modsec">
-  <prematch type="pcre2">ModSecurity: (?:Warning|Access denied)</prematch>
-</decoder>
-
-<decoder name="modsec-denied">
-  <parent>modsec</parent>
+  <prematch type="pcre2">(?=.*ModSecurity: Access denied)</prematch>
   <regex type="pcre2">\[client ([\d.]+)\] ModSecurity: (Access denied)[^.]*\..*?\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?request: "[A-Z]+ (\S+)</regex>
   <order>srcip, modsec_action, modsec_id, modsec_msg, url</order>
 </decoder>
 
-<decoder name="modsec-warning">
-  <parent>modsec</parent>
+<decoder name="modsec">
+  <prematch type="pcre2">(?=.*ModSecurity: Warning)</prematch>
   <regex type="pcre2">\[id "(\d+)"\].*?\[msg "([^"]*)"\].*?client: ([\d.]+),.*?request: "[A-Z]+ (\S+)</regex>
   <order>modsec_id, modsec_msg, srcip, url</order>
 </decoder>
