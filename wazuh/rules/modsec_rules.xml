@@ -61,6 +61,13 @@
     <group>scanner,</group>
   </rule>
 
+  <!-- Dập nhiễu: lab truy cập bằng IP nên CRS 920350 (Host là IP số) bắn ở mọi request -->
+  <rule id="100207" level="0">
+    <if_sid>100200</if_sid>
+    <field name="modsec_id">^920350$</field>
+    <description>WAF: bỏ qua CRS 920350 (Host header là IP số)</description>
+  </rule>
+
   <rule id="100210" level="10">
     <if_sid>100200</if_sid>
     <field name="modsec_id">^949110$</field>
